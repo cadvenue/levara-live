@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Live hike · Levara</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root { --green:#1E6B48; --ink:#16211C; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; font-family:-apple-system,Segoe UI,Roboto,sans-serif; }
+  #map { position:absolute; inset:0; z-index:1; background:#dfe6da; }
+  #bar {
+    position:absolute; z-index:2; top:0; left:0; right:0;
+    background:var(--green); color:#fff; padding:12px 16px calc(12px + env(safe-area-inset-top,0));
+    display:flex; align-items:center; gap:12px; box-shadow:0 2px 10px rgba(0,0,0,.2);
+  }
+  #dot { width:10px; height:10px; border-radius:50%; background:#7Cf2b0; flex:0 0 auto; box-shadow:0 0 0 rgba(124,242,176,.7); animation:p 1.6s infinite; }
+  @keyframes p { 0%{box-shadow:0 0 0 0 rgba(124,242,176,.6)} 70%{box-shadow:0 0 0 10px rgba(124,242,176,0)} 100%{box-shadow:0 0 0 0 rgba(124,242,176,0)} }
+  #who { font-weight:800; font-size:16px; line-height:1.15; }
+  #sub { font-size:12px; opacity:.9; }
+  #brand { margin-left:auto; font-weight:800; letter-spacing:-.3px; opacity:.9; }
+  #msg { position:absolute; z-index:3; inset:0; display:none; align-items:center; justify-content:center;
+    text-align:center; padding:30px; background:rgba(20,33,28,.88); color:#fff; flex-direction:column; gap:10px; }
+  #msg h2 { margin:0; font-size:20px; } #msg p { margin:0; opacity:.85; font-size:14px; max-width:320px; }
+  .att { position:absolute; z-index:2; bottom:2px; left:4px; font-size:9px; color:#333; background:rgba(255,255,255,.7); padding:1px 5px; border-radius:3px; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <div id="dot"></div>
+  <div>
+    <div id="who">Loading…</div>
+    <div id="sub">Connecting to live hike</div>
+  </div>
+  <div id="brand">Levara</div>
+</div>
+<div id="map"></div>
+<div class="att">Tiles © Esri</div>
+<div id="msg"><h2 id="msgh">…</h2><p id="msgp"></p></div>
+<script>
+  const SUPA = 'https://foqgarhqbrfntufbfdqk.supabase.co';
+  const KEY  = 'sb_publishable_zTP1vrLbbtEuGgPQiKmjlw_4gxUjJET';
+  const token = new URLSearchParams(location.search).get('s');
+
+  const map = L.map('map', { zoomControl:true, attributionControl:false }).setView([32.75,-16.95], 13);
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+    { maxZoom:18 }).addTo(map);
+
+  const icon = L.divIcon({ className:'', html:
+    '<div style="width:20px;height:20px;border-radius:50%;background:#2C7488;border:3px solid #fff;box-shadow:0 0 6px rgba(0,0,0,.4)"></div>',
+    iconSize:[20,20], iconAnchor:[10,10] });
+  let marker = null, first = true;
+
+  function showMsg(h,p){ document.getElementById('msgh').textContent=h; document.getElementById('msgp').textContent=p; document.getElementById('msg').style.display='flex'; }
+  function hideMsg(){ document.getElementById('msg').style.display='none'; }
+  function ago(iso){ if(!iso) return ''; const s=Math.max(0,(Date.now()-new Date(iso).getTime())/1000);
+    if(s<60) return Math.round(s)+'s ago'; if(s<3600) return Math.round(s/60)+'m ago'; return Math.round(s/3600)+'h ago'; }
+
+  if(!token){ showMsg('No hike link','This link is missing its tracking code. Ask your friend to share it again.'); }
+
+  async function poll(){
+    if(!token) return;
+    try {
+      const r = await fetch(SUPA+'/rest/v1/rpc/get_live', {
+        method:'POST',
+        headers:{ apikey:KEY, Authorization:'Bearer '+KEY, 'Content-Type':'application/json' },
+        body: JSON.stringify({ p_id: token })
+      });
+      const rows = await r.json();
+      const d = Array.isArray(rows) ? rows[0] : rows;
+      if(!d){ showMsg('Hike not found','This tracking link isn’t active.'); return; }
+      const who = document.getElementById('who'), sub = document.getElementById('sub');
+      who.textContent = (d.name || 'A hiker') + (d.trail_pr ? ' · ' + d.trail_pr : '');
+      if(d.active === false){
+        sub.textContent = 'Hike ended · last seen ' + ago(d.updated_at);
+        document.getElementById('dot').style.background = '#bbb';
+      } else {
+        sub.textContent = 'Live · updated ' + ago(d.updated_at);
+      }
+      if(typeof d.lat === 'number' && typeof d.lng === 'number'){
+        hideMsg();
+        const ll = [d.lat, d.lng];
+        if(!marker){ marker = L.marker(ll, {icon}).addTo(map); } else { marker.setLatLng(ll); }
+        if(first){ map.setView(ll, 15); first=false; }
+      }
+    } catch(e){ /* keep trying */ }
+  }
+  poll(); setInterval(poll, 5000);
+</script>
+</body>
+</html>
